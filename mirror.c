@@ -4,6 +4,11 @@
 #include <linux/if.h>
 #include <linux/if_ether.h>
 #include <linux/skbuff.h>
+#include <linux/moduleparam.h>
+#include <linux/string.h>
+#include <linux/sysrq.h>
+#include <linux/smp.h>
+#include <linux/netpoll.h>
 #if ( LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30) )
 #include <net/net_namespace.h>
 #endif
@@ -22,12 +27,12 @@ MODULE_VERSION("1.1");
 #define debugK(format, args...)
 #endif
 
-static __u32 ports_c;
-static __u16 ports[MAX_PORTS];
 struct net_device *mirror;
 struct net_device *ports_dev[MAX_PORTS] = { NULL };
-module_param_array(ports, ushort, &ports_c, 0400);
-MODULE_PARM_DESC(ports, " ports=[1,2,3,0] (Mirror packets from eth1 - eth3 to eth0)");
+static char config[256];
+module_param_string(mirror, config, 256, 0);
+MODULE_PARM_DESC(mirror, " mirror=eth1[/eth2/eth3/...]@eth0 "
+                "(Mirror eth1[and eth2 and eth3] traffic to eth0)");
 __read_mostly __u32 ifindex_bits = 0;
 
 /* Check whether the packets came from the interface we cared. */
@@ -50,7 +55,7 @@ free_ports (void)
 
         for (i=0; i<32; i++) {
                 if (ports_dev[i]) {
-                        debugK ("free %s\n", ports_dev[i]->name);
+                        printk("Remove data port: %s\n", ports_dev[i]->name);
                         dev_put(ports_dev[i]);
                 }
         }
@@ -86,62 +91,85 @@ packet_type mirror_proto = {
 };
 
 int
-init_module (void)
+option_setup (char *opt)
 {
-        int ret;
-        char interface[IFNAMSIZ];
-        int i;
+        char *from, *to, *cur, tmp;
         struct net_device *dev;
+        int count = 0;
 
-        if (ports_c < 2) {
-                debugK ("No ports found.\n");
+        printk ("args: %s\n", opt);
+
+        /* Get mirror port. */
+        if ((to = strchr(opt, '@')) == NULL)
+                return -EINVAL;
+        *to = '\0';
+        to++;
+
+        /* Get data ports. */
+        from = opt;
+        for (cur=opt; cur<=(opt+strlen(opt)); cur++) {
+                if (*cur == '/' ||
+                    *cur == '@' ||
+                    *cur == ',' ||
+                    *cur == 0x00)
+                {
+                        /* FIXME: why I must change it back, otherwise loop would stopped. */
+                        tmp = *cur;
+                        *cur = 0x00;
+                        if (!strcmp(to, from)) {
+                                printk ("%s is mirror port already.\n", to);
+                                free_ports();
+                                return -EBUSY;
+                        }
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) )
+                        dev = dev_get_by_name(from);
+#else
+                        dev = dev_get_by_name(&init_net, from);
+#endif
+                        /* Set data ports. */
+                        if (!dev) {
+                                printk ("Cannot find data port: %s\n", from);
+                                free_ports();
+                                return -ENODEV;
+                        }
+                        printk("Set data port: %s\n", dev->name);
+                        ports_dev[count++] = dev;
+                        ifindex_bits |= (1 << dev->ifindex);
+                        from = cur + 1;
+                        /* FIXME: why I must change it back, otherwise loop would stopped. */
+                        *cur = tmp;
+                }
+        }
+
+        /* Set mirror port. */
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) )
+        mirror = dev_get_by_name(to);
+#else
+        mirror = dev_get_by_name(&init_net, to);
+#endif
+        if (!mirror) {
+                printk (KERN_ERR "Cannot find mirror port: %s\n", to);
                 return -ENODEV;
         }
+        printk("Set mirror port: %s\n", mirror->name);
+        dev_add_pack(&mirror_proto);
 
-        for (i=0; i<ports_c-1; i++)
-        {
-                memset(interface, 0, sizeof(interface));
-                if (ports[i] >= 32) {
-                        debugK ("Wrong interface \"eth%d\", abort it.\n",
-                                ports[i]);
-                        continue;
-                }
+        return 0;
+}
 
-                snprintf(interface, sizeof(interface), "eth%d", ports[i]);
-                debugK ("try eth%d\n", ports[i]);
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) )
-                dev = dev_get_by_name(interface);
-#else
-                dev = dev_get_by_name(&init_net, interface);
-#endif
-                if (!dev) {
-                        debugK ("Can't found eth%d, abort it.\n", ports[i]);
-                        continue;
-                }
+int
+init_module (void)
+{
+        int ret = 0;
 
-                ifindex_bits |= (1 << dev->ifindex);
-                ports_dev[dev->ifindex] = dev;
+        /* Learn from netconsole. */
+        if (strlen(config)) {
+                ret = option_setup(config);
+                if (ret)
+                        return ret;
         }
 
-        /*
-         * PT: Last interface for packets sent.
-         * CU - platinum
-         */
-        snprintf(interface, sizeof(interface), "eth%d", ports[i]);
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) )
-        if ( (mirror = dev_get_by_name(interface)) )
-#else
-        if ( (mirror = dev_get_by_name(&init_net, interface)) )
-#endif
-        {
-                dev_add_pack(&mirror_proto);
-                printk("MIRROR module loaded on `%s'.\n", interface);
-                ret = 0;
-        } else {
-                free_ports();
-                ret = -ENODEV;
-        }
-
+        printk("MIRROR module loaded.\n");
         return ret;
 }
 
@@ -149,6 +177,7 @@ void
 cleanup_module(void)
 {
         dev_remove_pack(&mirror_proto);
+        printk("Remove mirror port: %s\n", mirror->name);
         dev_put(mirror);
         free_ports();
         printk("MIRROR module unloaded.\n");
