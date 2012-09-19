@@ -16,7 +16,7 @@
 MODULE_DESCRIPTION("Port Mirroring. Copy traffic from specified interfaces to MIRROR port.");
 MODULE_AUTHOR("CU - platinum, http://weibo.com/bjpt @°×½ð-PT");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.1");
+MODULE_VERSION("1.1.0");
 
 #define MAX_PORTS	32      /* Max number of the ports that we can capture. */
 
