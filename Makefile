@@ -1,7 +1,11 @@
 obj-m := mirror.o
 
+ifndef KERNEL_DIR
+	KERNEL_DIR=/lib/modules/$(shell uname -r)/build
+endif
+
 ALL:
-	make -C /usr/src/linux SUBDIRS=$(PWD) modules
+	make -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
 
 clean:
 	rm -rf *.o *.ko .tmp* .*cmd *.mod.c *.symvers
