@@ -165,11 +165,11 @@ init_module (void)
         /* Learn from netconsole. */
         if (strlen(config)) {
                 ret = option_setup(config);
-                if (ret)
-                        return ret;
-        }
+                if (!ret)
+                        printk("MIRROR module loaded.\n");
+        } else
+                ret = -EINVAL;
 
-        printk("MIRROR module loaded.\n");
         return ret;
 }
 
