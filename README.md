@@ -21,8 +21,8 @@ Tested kernel version: 2.6.23, 2.6.29, 2.6.37
     $ sudo modprobe mirror mirror=ethA/ethB/ethC@ethZ
     Mirror ethA, ethB, ethC, ... to ethZ
 
-    $ sudo modprobe mirror ports=eth2/eth3@eth0
+    $ sudo modprobe mirror mirror=eth2/eth3@eth0
     Mirror eth2 and eth3 to eth0.
 
-    $ sudo modprobe mirror ports=eth0@eth1
+    $ sudo modprobe mirror mirror=eth0@eth1
     Mirror eth0 to eth1.
